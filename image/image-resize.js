@@ -1,9 +1,9 @@
 /*!
  * ============================================================
- * 모듈명   : SalimCalc.imageResize
- * 파일     : calc/image-resize.js
+ * 모듈명   : barodogu.imageResize
+ * 파일     : image/image-resize.js
  * 저장소   : https://github.com/barodogu/tools
- * CDN      : https://cdn.jsdelivr.net/gh/barodogu/tools@main/calc/image-resize.js
+ * CDN      : https://cdn.jsdelivr.net/gh/barodogu/tools@main/image/image-resize.js
  * 사용 블로그: https://barodogu.blogspot.com/
  * 용도     : 사진 크기 조절 계산기
  *            - 가로·세로 픽셀 변경, 비율 유지
@@ -21,7 +21,7 @@
 (function (window, document) {
   'use strict';
 
-  var SalimCalc = window.SalimCalc = window.SalimCalc || {};
+  var barodogu = window.barodogu = window.barodogu || {};
 
   /* ---------- 단위 환산 (CONFIG에서도 사용) ---------- */
   function cmToPx(cm, dpi) {
@@ -552,7 +552,7 @@
     return api;
   }
 
-  SalimCalc.imageResize = {
+  barodogu.imageResize = {
     version: CONFIG.VERSION,
     CONFIG: CONFIG,
     init: init,
