@@ -282,7 +282,7 @@
   function init(selector) {
     var root = typeof selector === 'string' ? document.querySelector(selector) : selector;
     if (!root) return null;
-    if (root.getAttribute('data-sc-ready') === '1') return root.salimApi || null;
+    if (root.getAttribute('data-sc-ready') === '1') return root.barodoguApi || null;
 
     var names = ['body', 'loading', 'file', 'drop', 'info', 'ratio', 'anchor', 'w', 'h',
                  'keep', 'format', 'quality', 'qval', 'plan', 'run', 'reset', 'msg', 'result'];
@@ -548,7 +548,7 @@
 
     var api = { run: run, reset: reset, applyPreset: applyPreset };
     root.setAttribute('data-sc-ready', '1');
-    root.salimApi = api;
+    root.barodoguApi = api;
     return api;
   }
 
