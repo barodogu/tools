@@ -13,13 +13,14 @@
  *            - 옵션: 가림 문자(* ● X ■), 글자 수 유지/고정 3자, 기본/강하게
  *            - 파일: TXT·CSV·TSV·LOG·JSON·MD는 같은 형식(UTF-8)으로, XLSX는 서식을 유지한 채 저장
  *            - 표 머리글 인식: '이름·주소·생년월일' 열은 열 전체를 가림(CSV·TSV·XLSX·엑셀 붙여넣기)
+ *            - 머리글 없는 명단: 성씨로 시작하는 한글 2~4자 + 같은 행에 전화·이메일 등이 있는 열을 이름 열로 추정
  *            - XLSX 처리에는 JSZip 3.10.1(MIT)을 엑셀 파일을 열 때만 jsDelivr에서 불러옴
  *            ※ 입력 내용은 서버로 전송하지 않고 사용자 브라우저 안에서만 처리
  * 기준     : 항목별 가림 위치는 ISMS-P 인증기준 해설의 표시제한 예시와
  *            카드업계 보안표준(PCI DSS, 앞 6·뒤 4자리) 관행을 참고한 기본값
  * 사용법   : 글에 <div id="barodogu-privacy-masking"></div> 를 넣고
  *            이 파일을 <script src="…" defer></script> 로 불러오면 화면을 그립니다.
- * 버전     : 1.1.0
+ * 버전     : 1.2.0
  * 최종수정 : 2026-10-22
  * ============================================================
  */
@@ -30,7 +31,7 @@
 
   /* ---------- 기준값: 이 객체만 수정하면 됩니다 ---------- */
   var CONFIG = {
-    VERSION: '1.1.0',
+    VERSION: '1.2.0',
     UPDATED: '2026-10-22',
     ROOT_ID: 'barodogu-privacy-masking',
     MAX_CHARS: 1000000,       // 입력 최대 글자 수
@@ -45,6 +46,11 @@
     HEADER_NAME: /^(이름|성명|성함|한글이름|한글성명|(고객|회원|직원|학생|환자|신청자|사용자|가입자|계약자|피보험자|보험자|수익자|주문자|구매자)(명|이름|성명)?|예금주(명)?|수령인|수령자|수취인|받는(분|사람)|보내는(분|사람)|보호자(명)?|신청인|대표자(명)?|담당자(명)?|name|fullname|username|customername)$/i,
     HEADER_ADDR: /(주소|배송지|거주지|소재지|address|addr)/i,
     HEADER_ADDR_EXCLUDE: /(ip|이메일|메일|email|mail|url|웹|홈페이지|mac)/i,
+    /* 머리글이 없을 때 이름 열 추정: 흔한 성씨로 시작하는 한글 2~4자 */
+    SURNAMES: '김이박최정강조윤장임한오서신권황안송류유전홍고문양손배백허남심노하곽성차주우구민진지엄채원천방공현함변염여추도소석선설마길연위표명기반라왕금옥육인맹제모탁국어은편용예봉경사부가복태목형피두감음빈동온호범좌갈',
+    NAME_GUESS_EXCLUDE: /(팀|부|과|실|국|청|센터|본부|지점|지사|회사|학교|대학|병원|은행|님|씨|장|원장|대리|사원|주임|이사|대표|고객|회원|남자|여자|남성|여성|서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주|완료|대기|진행|취소|확인|정상|해지|신규|기존)$/,
+    NAME_GUESS_RATIO: 0.8,    // 열의 값 중 이름 모양 비율
+    NAME_GUESS_PII: 0.5,      // 이름 모양 값이 있는 행 중 다른 개인정보(전화·이메일 등)가 함께 있는 비율
     HEADER_BIRTH: /^(생년월일|생일|출생일|생년|birth|birthday|birthdate|dateofbirth|dob)$/i,
     FIXED_LEN: 3,             // '고정 3자' 옵션의 가림 문자 수
     MASK_CHARS: ['*', '●', 'X', '■'],
@@ -299,6 +305,39 @@
   /* 표 머리글 열은 체크 상태를 따르되, '생년월일' 열은 날짜 항목이 꺼져 있어도 가림 */
   function columnOn(type, on) { return type === 'birth' ? true : on[type] !== false; }
 
+  var NO_LABEL = { name: false, addr: false, custom: false, apt: false, birth: false };
+  function hasPII(v) { return !!v && detect(v, { types: NO_LABEL }).length > 0; }
+  function nameLike(v) {
+    if (!/^[가-힣]{2,4}$/.test(v)) return false;
+    if (CONFIG.SURNAMES.indexOf(v[0]) < 0 && !/^(남궁|황보|제갈|선우|독고|사공|서문)/.test(v)) return false;
+    return !CONFIG.NAME_GUESS_EXCLUDE.test(v);
+  }
+  /**
+   * 머리글 없이 이름 열 추정. grid: 행 배열(각 행은 칸 문자열 배열), skip: 이미 종류가 정해진 열 번호
+   * 조건: 값의 80% 이상이 '성씨로 시작하는 한글 2~4자'이고, 그 행의 절반 이상에 전화·이메일 등 다른 개인정보가 있음
+   */
+  function guessNameColumns(grid, skip) {
+    var width = 0, out = [], rows = grid.slice(0, 300);
+    rows.forEach(function (r) { width = Math.max(width, r.length); });
+    for (var c = 0; c < width; c++) {
+      if (skip && skip[c]) continue;
+      var filled = 0, like = 0, withPii = 0, uniq = {};
+      rows.forEach(function (r) {
+        var v = (r[c] || '').trim();
+        if (!v) return;
+        filled++; uniq[v] = 1;
+        if (!nameLike(v)) return;
+        like++;
+        if (r.some(function (x, i) { return i !== c && hasPII(x); })) withPii++;
+      });
+      if (!like || like / filled < CONFIG.NAME_GUESS_RATIO || withPii / like < CONFIG.NAME_GUESS_PII) continue;
+      if (filled >= 5 && Object.keys(uniq).length / filled < 0.5) continue;   /* 같은 값이 반복되는 열(부서·지역 등) 제외 */
+      out.push(c);
+    }
+    return out;
+  }
+  function colLetter(i) { var s = ''; i++; while (i > 0) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+
   /** 구분자 텍스트를 칸 단위로 나눔. 각 칸은 원문에서의 위치 {s, e}(앞뒤 공백·따옴표 제외) */
   function parseTable(text, d) {
     var rows = [], row = [], i = 0, n = text.length;
@@ -330,17 +369,28 @@
     var tabbed = lines.filter(function (l) { return l.indexOf('\t') >= 0; }).length;
     return tabbed / lines.length >= 0.8 ? '\t' : null;
   }
-  /** 머리글 행을 찾아 이름·주소·생년월일 열의 칸을 강제 감지 목록으로 */
+  /** 머리글 행을 찾아 이름·주소·생년월일 열의 칸을 강제 감지 목록으로 (머리글이 없으면 이름 열 추정) */
   function columnHits(text, d, on) {
     var rows = parseTable(text, d), hits = [], cols = [], h = -1;
+    var grid = rows.map(function (r) { return r.map(function (c) { return text.slice(c.s, c.e); }); });
     for (var r = 0; r < rows.length && r < 20; r++) {
-      var filled = rows[r].filter(function (c) { return c.e > c.s; }).length;
+      var filled = grid[r].filter(function (v) { return v; }).length;
       if (filled >= 2) { h = r; break; }
     }
     if (h < 0) return { hits: hits, columns: cols };
-    var types = rows[h].map(function (c) { return headerType(text.slice(c.s, c.e)); });
-    types.forEach(function (t, ci) { if (t) cols.push({ index: ci, header: text.slice(rows[h][ci].s, rows[h][ci].e), type: t, on: columnOn(t, on) }); });
-    for (r = h + 1; r < rows.length; r++) {
+    /* 첫 행에 전화·이메일 등 개인정보가 있으면 머리글이 아니라 데이터 */
+    var isHeader = !grid[h].some(hasPII);
+    var types = isHeader ? grid[h].map(headerType) : [];
+    types.forEach(function (t, ci) { if (t) cols.push({ index: ci, header: grid[h][ci], col: colLetter(ci), type: t, on: columnOn(t, on) }); });
+    var start = isHeader ? h + 1 : h;
+    if (on.name !== false && types.indexOf('name') < 0) {
+      var skip = {}; types.forEach(function (t, ci) { if (t) skip[ci] = 1; });
+      guessNameColumns(grid.slice(start), skip).forEach(function (ci) {
+        types[ci] = 'name';
+        cols.push({ index: ci, header: isHeader && grid[h][ci] ? grid[h][ci] : '이름 추정', col: colLetter(ci), type: 'name', on: true, guessed: true });
+      });
+    }
+    for (r = start; r < rows.length; r++) {
       rows[r].forEach(function (c, ci) {
         var t = types[ci];
         if (t && c.e > c.s && columnOn(t, on)) hits.push({ start: c.s, end: c.e, type: t });
@@ -460,23 +510,45 @@
               if (t === 'inlineStr') { var is = kids(c, 'is')[0]; return is ? richText(is) : ''; }
               var vv = kids(c, 'v')[0]; return vv ? vv.textContent : '';
             }
-            /* 머리글 행: 값이 2칸 이상인 첫 행 */
-            for (var r = 0; r < rowsEl.length && r < 20 && headerRow < 0; r++) {
-              var cs = kids(rowsEl[r], 'c'), filled = cs.filter(function (c) { return cellValue(c).trim(); });
-              if (filled.length >= 2) {
-                headerRow = r;
-                cs.forEach(function (c) {
-                  var ht = headerType(cellValue(c));
-                  if (ht) { colTypes[colOf(c.getAttribute('r'))] = ht; columns.push({ header: cellValue(c), col: colOf(c.getAttribute('r')), type: ht, on: columnOn(ht, on) }); }
-                });
-              }
+            /* 행별 칸 값(열 번호 기준) — 머리글 판단과 이름 열 추정에 사용 */
+            var grid = [];
+            for (var gr = 0; gr < rowsEl.length && gr < 300; gr++) {
+              var line = [];
+              kids(rowsEl[gr], 'c').forEach(function (c, ci) {
+                if (kids(c, 'f').length) return;
+                var ref = c.getAttribute('r'), idx2 = ref ? colIndex(colOf(ref)) : ci;
+                line[idx2] = cellValue(c);
+              });
+              grid.push(line);
+            }
+            /* 머리글 행: 값이 2칸 이상인 첫 행. 단, 전화·이메일 등 개인정보가 있으면 데이터로 봄 */
+            var firstRow = -1;
+            for (var r = 0; r < grid.length && r < 20; r++) {
+              if (grid[r].filter(function (v) { return v && String(v).trim(); }).length >= 2) { firstRow = r; break; }
+            }
+            if (firstRow >= 0 && !grid[firstRow].some(hasPII)) {
+              headerRow = firstRow;
+              grid[firstRow].forEach(function (v, ci) {
+                var ht = headerType(v);
+                if (ht) { colTypes[colLetter(ci)] = ht; columns.push({ header: v, col: colLetter(ci), type: ht, on: columnOn(ht, on) }); }
+              });
+            }
+            var dataFrom = headerRow >= 0 ? headerRow + 1 : 0;
+            if (on.name !== false && !columns.some(function (c) { return c.type === 'name'; })) {
+              var skipCols = {};
+              Object.keys(colTypes).forEach(function (L) { skipCols[colIndex(L)] = 1; });
+              guessNameColumns(grid.slice(dataFrom), skipCols).forEach(function (ci) {
+                var L = colLetter(ci);
+                colTypes[L] = 'name';
+                columns.push({ header: headerRow >= 0 && grid[headerRow][ci] ? grid[headerRow][ci] : '이름 추정', col: L, type: 'name', on: true, guessed: true });
+              });
             }
             for (r = 0; r < rowsEl.length; r++) {
               var cells = kids(rowsEl[r], 'c'), pRow = r < CONFIG.XLSX_PREVIEW_ROWS ? [] : null;
               cells.forEach(function (c, ci) {
                 var ref = c.getAttribute('r'), col = ref ? colOf(ref) : null, t = c.getAttribute('t');
                 var hasF = kids(c, 'f').length > 0, orig = cellValue(c), shown = orig, changed = false;
-                var ct = col && r > headerRow && headerRow >= 0 ? colTypes[col] : null;
+                var ct = col && r >= dataFrom ? colTypes[col] : null;
                 if (!hasF && orig.trim() && t !== 'str' && t !== 'b' && t !== 'e') {
                   if (ct && columnOn(ct, on)) {
                     shown = maskValue(ct, orig.trim(), o); setInline(c, shown); changed = true; count([{ type: ct }]);
@@ -687,7 +759,7 @@
 
     function columnChips(columns) {
       return (columns || []).filter(function (c) { return c.on; }).map(function (c) {
-        return '<li class="is-col">열 인식: ' + esc(c.header) + (c.col ? ' (' + esc(c.col) + '열)' : '') + '</li>';
+        return '<li class="is-col">' + (c.guessed ? '이름 열 추정: ' : '열 인식: ') + esc(c.guessed && c.header === '이름 추정' ? '' : c.header) + (c.col ? (c.guessed && c.header === '이름 추정' ? '' : ' ') + '(' + esc(c.col) + '열)' : '') + '</li>';
       }).join('');
     }
     function statChips(counts, total, columns) {
@@ -864,6 +936,7 @@
     maskValue: maskValue,
     maskXlsx: maskXlsx,
     parseTable: parseTable,
+    guessNameColumns: guessNameColumns,
     headerType: headerType,
     decodeText: decodeText,
     luhn: luhn
