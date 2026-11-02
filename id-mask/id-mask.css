@@ -1,0 +1,20 @@
+/*! 바로도구 신분증 가림 도구 v0.1 */
+#idmask-app{--idm-ac:#2563eb;--idm-bd:#d0d7de;--idm-bg:#f6f8fa;--idm-tx:#1f2328;--idm-mu:#59636e;max-width:760px;margin:16px auto;color:var(--idm-tx);font-family:inherit;line-height:1.5}
+#idmask-app *{box-sizing:border-box}
+.idm-hidden{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.idm [hidden]{display:none!important}
+.idm-drop{border:2px dashed var(--idm-bd);border-radius:12px;background:var(--idm-bg);padding:32px 16px;text-align:center}
+.idm-drop-on{border-color:var(--idm-ac);background:#eef4ff}
+.idm-drop-title{margin:0 0 4px;font-size:18px;font-weight:700}
+.idm-drop-sub{margin:0 0 16px;color:var(--idm-mu);font-size:14px}
+.idm-help{margin:0 0 8px;color:var(--idm-mu);font-size:14px}
+.idm-canvas-wrap{border:1px solid var(--idm-bd);border-radius:8px;background:repeating-conic-gradient(#eee 0 25%,#fff 0 50%) 0 0/16px 16px;overflow:hidden}
+.idm-canvas{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair;user-select:none;-webkit-user-select:none}
+.idm-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.idm-btn,.idm-select{min-height:44px;padding:10px 16px;border:1px solid var(--idm-bd);border-radius:8px;background:#fff;color:var(--idm-tx);font:inherit;font-size:15px;cursor:pointer}
+.idm-btn:disabled{opacity:.45;cursor:not-allowed}
+.idm-btn-primary{background:var(--idm-ac);border-color:var(--idm-ac);color:#fff;font-weight:700}
+.idm-btn-ghost{background:transparent;color:var(--idm-mu)}
+.idm-row .idm-btn-primary{flex:1 1 180px}
+.idm-status{min-height:1.5em;margin:12px 0 0;font-size:14px;color:#1a7f37}
+@media (max-width:480px){.idm-row .idm-btn,.idm-row .idm-select{flex:1 1 100%}}
