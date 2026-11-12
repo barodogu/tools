@@ -3,7 +3,7 @@
  * https://barodogu.blogspot.com
  * 사용법: 글에 <div id="bd-idcopy"></div> 를 넣고 이 스크립트를 불러오세요.
  * 모든 처리는 브라우저 안에서만 이뤄지며, 사진은 어디로도 전송되지 않아요.
- * 버전: 1.1 (아이폰·삼성 인터넷 저장/공유, 카메라 바로 찍기)
+ * 버전: 1.2 (아이폰 저장 = 공유 창 「파일에 저장」)
  */
 (function () {
   'use strict';
@@ -13,6 +13,9 @@
   var CARD_TOP_MM = 30, CARD_GAP_MM = 15;       // 복사기 '신분증 복사' 모드와 비슷한 배치
   var CARD_DPI = 300, PAGE_DPI = 200;
   var MAX_SRC = 2400;                           // 아이폰 메모리 보호: 원본 긴 변 최대 픽셀
+  // 아이폰·아이패드 판별 (아이패드는 데스크톱 모드에서 MacIntel로 보임)
+  var IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent || '') ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   var mm2px = function (mm, dpi) { return mm / 25.4 * dpi; };
   var CARD_PX_W = Math.round(mm2px(CARD_W_MM, CARD_DPI)); // 1011
   var CARD_PX_H = Math.round(mm2px(CARD_H_MM, CARD_DPI)); // 638
@@ -464,7 +467,7 @@
     });
     // 공유 버튼: 파일 공유를 지원하는 폰(아이폰 사파리·안드로이드 크롬)에서만 보이기
     try {
-      if (navigator.canShare && navigator.canShare({ files: [new File(['x'], 't.pdf', { type: 'application/pdf' })] }))
+      if (!IS_IOS && navigator.canShare && navigator.canShare({ files: [new File(['x'], 't.pdf', { type: 'application/pdf' })] }))
         q('[data-act=share]').style.display = '';
     } catch (x) {}
     [this.file, this.cam].forEach(function (inp) {
@@ -826,21 +829,27 @@
     var isPdf = kind !== 'jpg';
     var blob = isPdf ? makePdf(jpg, pw, ph) : new Blob([jpg], { type: 'image/jpeg' });
     var fname = name + (isPdf ? '.pdf' : '.jpg');
-    if (kind === 'share') {
+    // 아이폰·아이패드: 사파리는 PDF를 내려받지 않고 새 창에 열어 버려서,
+    // 저장 버튼도 공유 창(「파일에 저장」·「이미지 저장」)으로 엽니다.
+    if (kind === 'share' || IS_IOS) {
       var f;
       try { f = new File([blob], fname, { type: blob.type }); } catch (x) { f = null; }
       if (f && navigator.share && (!navigator.canShare || navigator.canShare({ files: [f] }))) {
+        var tip = IS_IOS
+          ? (isPdf ? '공유 창에서 <b>「파일에 저장」</b>을 누르면 PDF로 저장돼요.' : '공유 창에서 <b>「이미지 저장」</b>을 누르면 사진 앱에 저장돼요.')
+          : '공유 창에서 「파일에 저장」이나 카톡을 고르세요.';
         try {
           navigator.share({ files: [f], title: '신분증 사본' }).then(function () {
-            self.smsg('ok', '공유 창을 열었어요. 「파일에 저장」이나 카톡으로 보낼 수 있어요.');
+            self.smsg('ok', '완료했어요. ' + (IS_IOS && isPdf ? '「파일」 앱에서 찾을 수 있어요.' : ''));
           }, function (e) {
-            if (e && e.name === 'AbortError') self.smsg('', '');
+            if (e && e.name === 'AbortError') self.smsg('info', '저장을 취소했어요. 다시 누르면 공유 창이 열려요. ' + tip);
             else self.fallback(blob, fname, '<b>이 브라우저는 파일 공유를 막고 있어요.</b>');
           });
+          this.smsg('info', tip);
           return;
         } catch (x) { /* 아래 대체 방법 */ }
       }
-      return this.fallback(blob, fname, '<b>이 브라우저는 파일 공유를 지원하지 않아요.</b>');
+      if (kind === 'share') return this.fallback(blob, fname, '<b>이 브라우저는 파일 공유를 지원하지 않아요.</b>');
     }
     download(blob, fname);
     this.fallback(blob, fname, (isPdf ? 'PDF' : 'JPG') + '를 저장했어요. 갤럭시는 「내 파일 → 다운로드」, 아이폰은 「파일」 앱 → 다운로드에서 찾을 수 있어요.', true);
