@@ -3,7 +3,7 @@
  * https://barodogu.blogspot.com
  * 사용법: 글에 <div id="bd-idcopy"></div> 를 넣고 이 스크립트를 불러오세요.
  * 모든 처리는 브라우저 안에서만 이뤄지며, 사진은 어디로도 전송되지 않아요.
- * 버전: 1.0 (3단계 완료)
+ * 버전: 1.1 (아이폰·삼성 인터넷 저장/공유, 카메라 바로 찍기)
  */
 (function () {
   'use strict';
@@ -16,7 +16,7 @@
   var mm2px = function (mm, dpi) { return mm / 25.4 * dpi; };
   var CARD_PX_W = Math.round(mm2px(CARD_W_MM, CARD_DPI)); // 1011
   var CARD_PX_H = Math.round(mm2px(CARD_H_MM, CARD_DPI)); // 638
-
+ 
   /* ---------------- 스타일 ---------------- */
   var CSS = [
     '.bdic{box-sizing:border-box;max-width:680px;margin:16px auto;padding:16px;border:1px solid #dbe4f0;border-radius:16px;background:#fff;color:#1f2937;font-size:16px;line-height:1.55;-webkit-text-size-adjust:100%}',
@@ -75,7 +75,7 @@
     '.bdic .bdic-mbox.sel{outline:3px solid #f59e0b}',
     '.bdic .bdic-mbox i{position:absolute;right:-14px;bottom:-14px;width:28px;height:28px;border-radius:50%;background:#f59e0b;border:3px solid #fff}'
   ].join('\n');
-
+ 
   /* ---------------- 공통 유틸 ---------------- */
   function el(tag, attrs, html) {
     var e = document.createElement(tag);
@@ -90,7 +90,7 @@
     var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
     return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate());
   }
-
+ 
   /* ---- 호모그래피(원근 변환): 4점 → 4점 ---- */
   function solve(A, b) { // 가우스 소거 (8x8)
     var n = b.length, i, j, k;
@@ -165,7 +165,7 @@
     for (var i = 0; i < 4; i++) { var p = q[i], n = q[(i + 1) % 4]; a += p[0] * n[1] - n[0] * p[1]; }
     return Math.abs(a) / 2;
   }
-
+ 
   /* ---- 최소 PDF 생성기 (라이브러리 없음, JPEG 한 장을 A4에 꽉 채움) ---- */
   function makePdf(jpg, pxW, pxH) {
     var W = (A4_W_MM / 25.4 * 72).toFixed(2), H = (A4_H_MM / 25.4 * 72).toFixed(2);
@@ -203,27 +203,13 @@
     }
     return u8;
   }
-  function canvasToJpeg(c, q) {
-    return new Promise(function (res, rej) {
-      if (c.toBlob) c.toBlob(function (b) {
-        if (!b) return rej(new Error('toBlob'));
-        b.arrayBuffer ? b.arrayBuffer().then(function (ab) { res(new Uint8Array(ab)); }, rej)
-          : (function () { var fr = new FileReader(); fr.onload = function () { res(new Uint8Array(fr.result)); }; fr.onerror = rej; fr.readAsArrayBuffer(b); })();
-      }, 'image/jpeg', q);
-      else {
-        var bin = atob(c.toDataURL('image/jpeg', q).split(',')[1]), u = new Uint8Array(bin.length);
-        for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-        res(u);
-      }
-    });
-  }
   function download(blob, name) {
     var url = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = url; a.download = name; a.rel = 'noopener';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
   }
-
+ 
   /* ---- 모서리 자동 찾기 (가벼운 방식: 배경색과 다른 가장 큰 덩어리의 꼭짓점) ---- */
   function autoQuad(src, rectOnly) {
     try {
@@ -291,7 +277,7 @@
     } catch (err) { return null; }
   }
   function dist2(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
-
+ 
   /* ---- 예시 데이터 (가짜 신분증 그림을 책상 위에 비스듬히 놓은 사진처럼) ---- */
   function drawSampleCard(back) {
     var c = canvas(CARD_PX_W, CARD_PX_H), g = c.getContext('2d'), W = CARD_PX_W, H = CARD_PX_H;
@@ -351,7 +337,7 @@
     g.fillStyle = light; g.fillRect(0, 0, SW, SH);
     return { canvas: sc, quad: quad };
   }
-
+ 
   /* ---------------- 메인 ---------------- */
   function Tool(root) {
     this.root = root;
@@ -435,14 +421,17 @@
           '<button type="button" class="bdic-btn" data-act="print">🖨️ 바로 인쇄</button>' +
           '<button type="button" class="bdic-btn" data-act="share" style="display:none">📤 공유·파일에 저장</button>' +
         '</div>' +
+        '<div class="bdic-smsg"></div>' +
         '<div class="bdic-tip">💡 인쇄할 때는 PDF를 열고 <b>배율 「실제 크기(100%)」</b>를 고르세요. 「페이지에 맞춤」을 고르면 신분증이 조금 작게 나와요.</div>' +
       '</div>' +
-      '<input type="file" accept="image/*">';
+      '<input type="file" accept="image/*" data-in="pick"><input type="file" accept="image/*" capture="environment" data-in="cam">';
     r.appendChild(box);
     this.box = box;
-    this.file = box.querySelector('input[type=file]');
+    this.file = box.querySelector('[data-in=pick]');
+    this.cam = box.querySelector('[data-in=cam]');
     this.ed = box.querySelector('.bdic-ed');
     this.msgs = box.querySelector('.bdic-msgs');
+    this.smsgs = box.querySelector('.bdic-smsg');
     this.out = box.querySelector('.bdic-out');
     this.prev = box.querySelector('.bdic-prev canvas');
     this.renderSlot('front'); this.renderSlot('back');
@@ -450,6 +439,7 @@
       var b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
       var act = b.getAttribute('data-act'), side = b.getAttribute('data-side');
       if (act === 'pick') self.pick(side);
+      else if (act === 'cam') { self.pickSide = side; self.cam.click(); }
       else if (act === 'reedit') self.openEditor(side);
       else if (act === 'del') { self.sides[side] = null; self.renderSlot(side); self.update(); }
       else if (act === 'sample') self.loadSample();
@@ -477,13 +467,21 @@
       if (navigator.canShare && navigator.canShare({ files: [new File(['x'], 't.pdf', { type: 'application/pdf' })] }))
         q('[data-act=share]').style.display = '';
     } catch (x) {}
-    this.file.addEventListener('change', function () {
-      var f = self.file.files && self.file.files[0]; self.file.value = '';
-      if (f) self.loadFile(f, self.pickSide);
+    [this.file, this.cam].forEach(function (inp) {
+      inp.addEventListener('change', function () {
+        var f = inp.files && inp.files[0]; inp.value = '';
+        if (f) self.loadFile(f, self.pickSide);
+      });
     });
   };
   Tool.prototype.msg = function (type, html) {
     this.msgs.innerHTML = html ? '<div class="bdic-msg ' + type + '">' + html + '</div>' : '';
+    if (this.smsgs) this.smsgs.innerHTML = '';
+  };
+  // 저장·공유·인쇄 결과는 버튼 바로 아래에 보여 줌
+  Tool.prototype.smsg = function (type, html) {
+    this.msgs.innerHTML = '';
+    this.smsgs.innerHTML = html ? '<div class="bdic-msg ' + type + '">' + html + '</div>' : '';
   };
   Tool.prototype.renderSlot = function (side) {
     var s = this.sides[side], slot = this.box.querySelector('.bdic-slot[data-side=' + side + ']');
@@ -496,16 +494,19 @@
       slot.insertAdjacentHTML('beforeend', '<div class="bdic-sb">' +
         '<button type="button" class="bdic-btn" data-act="reedit" data-side="' + side + '">✂️ 모서리 조정</button>' +
         '<button type="button" class="bdic-btn" data-act="mask" data-side="' + side + '">🙈 가릴 곳 편집</button>' +
-        '<button type="button" class="bdic-btn" data-act="pick" data-side="' + side + '">📷 다른 사진</button>' +
+        '<button type="button" class="bdic-btn" data-act="pick" data-side="' + side + '">🖼️ 다른 사진</button>' +
         '<button type="button" class="bdic-btn" data-act="del" data-side="' + side + '">🗑️ 빼기</button></div>');
     } else {
       slot.innerHTML = '<b>' + name + '</b>' +
         '<div style="font-size:40px;line-height:1.2">' + (side === 'front' ? (this.opt.mode === 'mobile' ? '📱' : '🪪') : '🔄') + '</div>' +
-        '<button type="button" class="bdic-btn bdic-pri" data-act="pick" data-side="' + side + '">📷 ' + name.replace('(선택)', '') + ' ' + (this.opt.mode === 'mobile' ? '캡처' : '사진') + ' 선택</button>';
+        (this.opt.mode === 'mobile' ? '' :
+          '<button type="button" class="bdic-btn bdic-pri" data-act="cam" data-side="' + side + '">📷 ' + name + ' 바로 찍기</button>') +
+        '<button type="button" class="bdic-btn' + (this.opt.mode === 'mobile' ? ' bdic-pri' : '') + '" data-act="pick" data-side="' + side + '">🖼️ ' +
+          name.replace('(선택)', '') + ' ' + (this.opt.mode === 'mobile' ? '캡처' : '사진') + ' 고르기</button>';
     }
   };
   Tool.prototype.pick = function (side) { this.pickSide = side; this.file.click(); };
-
+ 
   Tool.prototype.loadFile = function (f, side) {
     var self = this;
     var isHeic = /heic|heif/i.test(f.type) || /\.(heic|heif)$/i.test(f.name || '');
@@ -535,7 +536,7 @@
     };
     img.src = url;
   };
-
+ 
   Tool.prototype.loadSample = function () {
     var self = this;
     ['front', 'back'].forEach(function (side) {
@@ -551,7 +552,7 @@
     self.refreshAll();
     self.msg('ok', '예시 사진 2장의 모서리를 <b>자동으로 찾아</b> 반듯하게 폈어요. 주민번호 뒷자리 가림과 워터마크도 켜 두었어요. <b>✂️ 모서리 조정</b>·<b>🙈 가릴 곳 편집</b>도 눌러 보세요.');
   };
-
+ 
   /* ---- 모서리 4점 편집기 ---- */
   Tool.prototype.openEditor = function (side) {
     var self = this, s = this.sides[side]; if (!s) return;
@@ -579,7 +580,7 @@
     var hs = ed.querySelectorAll('.bdic-h'), loupe = ed.querySelector('.bdic-loupe');
     var ctx = cv.getContext('2d'), lctx = loupe.getContext('2d');
     var dpr = Math.min(2, window.devicePixelRatio || 1), scale = 1, active = -1;
-
+ 
     function layout() {
       var cssW = stage.clientWidth || 300;
       var maxH = Math.max(260, (window.innerHeight || 700) * 0.62);
@@ -644,7 +645,7 @@
     });
     var end = function () { if (active < 0) return; active = -1; loupe.style.display = 'none'; draw(); };
     stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
-
+ 
     ed.querySelector('[data-e=rot]').onclick = function () {
       var r = canvas(src.height, src.width), g = r.getContext('2d');
       g.translate(r.width, 0); g.rotate(Math.PI / 2); g.drawImage(src, 0, 0);
@@ -756,7 +757,7 @@
     g.putImageData(dd, 0, 0);
     return out;
   };
-
+ 
   /* ---- A4 페이지 그리기 ---- */
   Tool.prototype.cards = function () {
     var a = [], self = this;
@@ -804,38 +805,55 @@
     this.out.style.display = has ? 'block' : 'none';
     if (has) this.renderPage(96, this.prev); // 미리보기
   };
+  // 저장·공유는 '버튼을 누른 그 순간' 안에 끝내야 해요.
+  // (아이폰 사파리·삼성 인터넷은 기다렸다가 저장·공유하면 사용자 동작이 아니라고 보고 막아요)
   Tool.prototype.save = function (kind) {
     var self = this;
     if (!this.cards().length) return this.msg('err', '먼저 신분증 사진을 넣어 주세요.');
-    var btns = this.out.querySelectorAll('button[data-act]'); btns.forEach(function (b) { b.disabled = true; });
-    this.msg('info', '파일을 만드는 중이에요…');
-    setTimeout(function () {
-      var page;
-      try { page = self.renderPage(PAGE_DPI); }
-      catch (e) { done(); return self.msg('err', '<b>메모리가 부족해요.</b> 다른 앱·탭을 닫고 다시 눌러 주세요.'); }
-      canvasToJpeg(page, 0.92).then(function (jpg) {
-        setJpegDpi(jpg, PAGE_DPI);
-        var name = '신분증사본_A4_' + today(), pw = page.width, ph = page.height;
-        page.width = page.height = 1; // 아이폰 캔버스 메모리 즉시 반납
-        if (kind === 'pdf') {
-          download(makePdf(jpg, pw, ph), name + '.pdf');
-          self.msg('ok', 'PDF를 저장했어요. 다운로드 폴더(아이폰은 「파일」 앱 → 다운로드)를 확인해 주세요.');
-        } else if (kind === 'jpg') {
-          download(new Blob([jpg], { type: 'image/jpeg' }), name + '.jpg');
-          self.msg('ok', 'JPG를 저장했어요. 갤럭시는 「내 파일 → 다운로드」, 아이폰은 「파일」 앱에서 찾을 수 있어요.');
-        } else if (kind === 'share') {
-          var f = new File([makePdf(jpg, pw, ph)], name + '.pdf', { type: 'application/pdf' });
-          return navigator.share({ files: [f], title: '신분증 사본' }).then(function () { done(); self.msg('ok', '공유 창을 열었어요.'); },
-            function (e) { done(); if (e && e.name === 'AbortError') self.msg('', ''); else self.msg('err', '<b>공유하지 못했어요.</b> 「PDF 저장」으로 내려받은 뒤 보내 주세요.'); });
-        } else if (kind === 'print') {
-          self.print(jpg);
-        }
-        done();
-      }, function () {
-        done(); self.msg('err', '<b>파일을 만들지 못했어요.</b> 브라우저를 새로고침한 뒤 다시 시도해 주세요.');
-      });
-    }, 30);
-    function done() { btns.forEach(function (b) { b.disabled = false; }); }
+    var page, jpg;
+    try {
+      page = this.renderPage(PAGE_DPI);
+      var bin = atob(page.toDataURL('image/jpeg', 0.92).split(',')[1]);
+      jpg = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) jpg[i] = bin.charCodeAt(i);
+      setJpegDpi(jpg, PAGE_DPI);
+    } catch (e) {
+      return this.smsg('err', '<b>메모리가 부족해요.</b> 다른 앱·탭을 닫고 다시 눌러 주세요.');
+    }
+    var name = '신분증사본_A4_' + today(), pw = page.width, ph = page.height;
+    page.width = page.height = 1; // 아이폰 캔버스 메모리 즉시 반납
+    if (kind === 'print') return this.print(jpg);
+    var isPdf = kind !== 'jpg';
+    var blob = isPdf ? makePdf(jpg, pw, ph) : new Blob([jpg], { type: 'image/jpeg' });
+    var fname = name + (isPdf ? '.pdf' : '.jpg');
+    if (kind === 'share') {
+      var f;
+      try { f = new File([blob], fname, { type: blob.type }); } catch (x) { f = null; }
+      if (f && navigator.share && (!navigator.canShare || navigator.canShare({ files: [f] }))) {
+        try {
+          navigator.share({ files: [f], title: '신분증 사본' }).then(function () {
+            self.smsg('ok', '공유 창을 열었어요. 「파일에 저장」이나 카톡으로 보낼 수 있어요.');
+          }, function (e) {
+            if (e && e.name === 'AbortError') self.smsg('', '');
+            else self.fallback(blob, fname, '<b>이 브라우저는 파일 공유를 막고 있어요.</b>');
+          });
+          return;
+        } catch (x) { /* 아래 대체 방법 */ }
+      }
+      return this.fallback(blob, fname, '<b>이 브라우저는 파일 공유를 지원하지 않아요.</b>');
+    }
+    download(blob, fname);
+    this.fallback(blob, fname, (isPdf ? 'PDF' : 'JPG') + '를 저장했어요. 갤럭시는 「내 파일 → 다운로드」, 아이폰은 「파일」 앱 → 다운로드에서 찾을 수 있어요.', true);
+  };
+  // 자동 저장이 막힌 브라우저용: 사용자가 직접 누르는 링크를 띄움
+  Tool.prototype.fallback = function (blob, fname, lead, ok) {
+    if (this._fbUrl) URL.revokeObjectURL(this._fbUrl);
+    var url = this._fbUrl = URL.createObjectURL(blob), isPdf = /pdf$/i.test(fname);
+    this.smsg(ok ? 'ok' : 'err', lead +
+      '<br>저장 창이 안 떴다면 👉 <a href="' + url + '" download="' + fname + '" target="_blank" rel="noopener" ' +
+      'style="display:inline-block;margin-top:6px;padding:8px 14px;border-radius:10px;background:#2563eb;color:#fff;font-weight:700;text-decoration:none">' +
+      (isPdf ? '📄 PDF 열기' : '🖼️ 사진 열기') + '</a><br><span style="font-size:13px">' +
+      (isPdf ? '열린 PDF에서 공유 버튼(□↑) → 「파일에 저장」을 누르세요.' : '열린 사진을 길게 눌러 「사진 앱에 저장」을 누르세요.') + '</span>');
   };
   Tool.prototype.print = function (jpg) {
     var self = this, url = URL.createObjectURL(new Blob([jpg], { type: 'image/jpeg' }));
@@ -849,13 +867,13 @@
     doc.close();
     var img = doc.querySelector('img'), go = function () {
       try { fr.contentWindow.focus(); fr.contentWindow.print(); }
-      catch (e) { self.msg('err', '<b>이 브라우저에서는 바로 인쇄가 안 돼요.</b> 「PDF 저장」 후 PDF를 열어 인쇄해 주세요.'); }
+      catch (e) { self.smsg('err', '<b>이 브라우저에서는 바로 인쇄가 안 돼요.</b> 「PDF 저장」 후 PDF를 열어 인쇄해 주세요.'); }
       setTimeout(function () { fr.remove(); URL.revokeObjectURL(url); }, 60000);
     };
     if (img.complete) setTimeout(go, 50); else img.onload = go;
-    self.msg('info', '인쇄 창에서 <b>여백 「없음」</b>, <b>배율 「100%(실제 크기)」</b>를 고르면 신분증이 실물 크기로 나와요.');
+    self.smsg('info', '인쇄 창에서 <b>여백 「없음」</b>, <b>배율 「100%(실제 크기)」</b>를 고르면 신분증이 실물 크기로 나와요.');
   };
-
+ 
   /* ---- 시작 ---- */
   function boot() {
     var root = document.getElementById(ROOT_ID);
